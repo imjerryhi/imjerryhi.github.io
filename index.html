@@ -80,7 +80,7 @@
             
 		</nav>
 		<nav>
-			总字数 <span class="post-count">3.1k</span>
+			总字数 <span class="post-count">4.5k</span>
 		</nav>
 		<nav class="header-nav">
 			<div class="social">
@@ -155,12 +155,144 @@
           <div id="js-content" class="content-ll">
             
   
-    <article id="post-事务" class="article article-type-post  article-index" itemscope itemprop="blogPost">
+    <article id="post-存储引擎" class="article article-type-post  article-index" itemscope itemprop="blogPost">
   <div class="article-inner">
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="article-title" href="/2022/07/09/%E5%AD%98%E5%82%A8%E5%BC%95%E6%93%8E/">存储引擎</a>
+    </h1>
+  
+
+        
+        <a href="/2022/07/09/%E5%AD%98%E5%82%A8%E5%BC%95%E6%93%8E/" class="archive-article-date">
+  	<time datetime="2022-07-09T08:12:09.000Z" itemprop="datePublished"><i class="icon-calendar icon"></i>2022-07-09</time>
+</a>
+
+        
+        <div align="center" class="post-count">
+          字数：1.3k字 | 预计阅读时长：4分钟
+      </div>
+      </header>
     
     <div class="article-entry" itemprop="articleBody">
       
-        <p>根据维基百科解释，<strong>数据库事务</strong>（简称：<strong>事务</strong>）是<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%AE%A1%E7%90%86%E7%B3%BB%E7%BB%9F">数据库管理系统</a>执行过程中的一个逻辑单位，由一个有限的<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%95%B0%E6%8D%AE%E5%BA%93">数据库</a>操作序列构成。简单来说，如果数据库引擎能够成功地对数据库应用该组查询的全部语句， 那么就执行该组查询。 也就是说， 事务内的语句， 要么全部执行成功， 要么全部执行失败。<br>     举个栗子，银行应用是解释事务必要性的一个经典例子。 假设一个银行的数据库有两张表： 支票<br>（checking） 表和储蓄（savings） 表。 现在要从用户Jane的支票账户转移200美元到她的储蓄账户， 那么需要至少三个步骤：</p>
+        <h1 id="InnoDB概览"><a href="#InnoDB概览" class="headerlink" title="InnoDB概览"></a>InnoDB概览</h1><p>InnoDB采用MVCC来支持高并发， 并且实现了四个标准的隔离级别。 其默认级别是REPEATABLE READ（可重复读） ， 并且通过间隙锁（next-key locking） 策略防止幻读的出现。<br>    InnoDB表是基于聚簇索引建立的。 InnoDB的索引结构和MySQL的其他存储引擎有很大的不同， 聚簇索引对主键查询有很高的性能。 不过它的二级索引（secondary index， 非主键索引）中必须包含主键列， 所以如果主键列很大的话， 其他的所有索引都会很大。 因此， 若表上的索引较多的话， 主键应当尽可能的小。  </p>
+<h1 id="MyISAM存储引擎"><a href="#MyISAM存储引擎" class="headerlink" title="MyISAM存储引擎"></a>MyISAM存储引擎</h1><p>在MySQL 5.1及之前的版本， MyISAM是默认的存储引擎。 MyISAM提供了大量的特性， 包括全文索引、 压缩、 空间函数（GIS） 等， 但MyISAM不支持事务和行级锁， 而且有一个毫无疑问的缺陷就是崩溃后无法安全恢复。<br><strong>存储</strong><br>MyISAM会将表存储在两个文件中： 数据文件和索引文件， 分别以.MYD和.MYI为扩展名。  </p>
+<h1 id="转换表的引擎"><a href="#转换表的引擎" class="headerlink" title="转换表的引擎"></a>转换表的引擎</h1><p>**ALTER TABLE<br>**将表从一个引擎修改为另一个引擎最简单的办法是使用ALTER TABLE语句。 下面的语句将mytable的引擎修改为InnoDB：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">ALTER</span> <span class="keyword">TABLE</span> mytable ENGINE<span class="operator">=</span>InnoDB;</span><br></pre></td></tr></table></figure>
+<p>上述语法可以适用任何存储引擎。 但有一个问题： 需要执行很长时间。 MySQL会按行将数据从原表复制到一张新的表中， 在复制期间可能会消耗系统所有的I/O能力， 同时原表上会加上读锁。 所以， 在繁忙的表上执行此操作要特别小心。 一个替代方案是采用接手工进行表的复制。<br>如果转换表的存储引擎， 将会失去和原引擎相关的所有特性。 例如， 如果将一InnoDB表转换为MyISAM， 然后再转换回InnoDB， 原InnoDB表上所有的外键将丢失。 </p>
+<p><strong>导出与导入</strong><br>    为了更好地控制转换的过程， 可以使用mysqldump工具将数据导出到文件， 然后修改文件中CREATE TABLE语句的存储引擎选项， 注意同时修改表名， 因为同一个数据库中不能存在相同的表名， 即使它们使用的是不同的存储引擎。 同时要注意mysqldump默认会自动在CREATE TABLE语句前加上DROP TABLE语句， 不注意这一点可能会导致数据丢失。</p>
+<p>**创建与查询（CREATE和SELECT）<br>**    第三种转换的技术综合了第一种方法的高效和第二种方法的安全。 不需要导出整个表的数据， 而是先创建一个新的存储引擎的表， 然后利用INSERT…SELECT语法来导数据：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">START</span> TRANSACTION;</span><br><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">INSERT</span> <span class="keyword">INTO</span> innodb_table <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> myisam_table</span><br><span class="line"><span class="operator">-</span><span class="operator">&gt;</span> <span class="keyword">WHERE</span> id <span class="keyword">BETWEEN</span> x <span class="keyword">AND</span> y;</span><br><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">COMMIT</span>;</span><br></pre></td></tr></table></figure>
+<p>数据量不大的话， 这样做工作得很好。 如果数据量很大， 则可以考虑做分批处理， 针对每一段数据执事务提交操作， 以避免大事务产生过多的undo。 假设有主键字段id， 重复运行以下语句（最小值x和最大值y进行相应的替换） 将数据导入到新表：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">START</span> TRANSACTION;</span><br><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">INSERT</span> <span class="keyword">INTO</span> innodb_table <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> myisam_table<span class="operator">-</span><span class="operator">&gt;</span> <span class="keyword">WHERE</span> id <span class="keyword">BETWEEN</span> x <span class="keyword">AND</span> y;</span><br><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">COMMIT</span>;</span><br></pre></td></tr></table></figure>
+<p>这样操作完成以后， 新表是原表的一个全量复制， 原表还在， 如果需要可以删除原表。 如果有必要， 可以在执行的过程中对原表加锁， 以确保新表和原表的数据一致。 </p>
+<h1 id="MyISAM与InnoDB-的区别"><a href="#MyISAM与InnoDB-的区别" class="headerlink" title="MyISAM与InnoDB 的区别"></a>MyISAM与InnoDB 的区别</h1><ul>
+<li>InnoDB支持事务，MyISAM不支持，对于InnoDB每一条SQL语言都默认封装成事务，自动提交，这样会影响速度，所以最好把多条SQL语言放在begin和commit之间，组成一个事务。 </li>
+<li> InnoDB支持外键，而MyISAM不支持。对一个包含外键的InnoDB表转为MYISAM会失败。</li>
+<li> InnoDB是聚集索引，使用B+Tree作为索引结构，数据文件是和（主键）索引绑在一起的（表数据文件本身就是按B+Tree组织的一个索引结构），必须要有主键，通过主键索引效率很高。但是辅助索引需要两次查询，先查询到主键，然后再通过主键查询到数据。因此，主键不应该过大，因为主键太大，其他索引也都会很大。</li>
+<li>InnoDB不保存表的具体行数，执行select count(*) from table时需要全表扫描。而MyISAM用一个变量保存了整个表的行数，执行上述语句时只需要读出该变量即可，速度很快（注意不能加有任何WHERE条件）。</li>
+<li>Innodb不支持全文索引，而MyISAM支持全文索引，在涉及全文索引领域的查询效率上MyISAM速度更快高；PS：5.7以后的InnoDB支持全文索引了。</li>
+<li>MyISAM表格可以被压缩后进行查询操作。</li>
+<li>InnoDB支持表、行(默认)级锁，而MyISAM支持表级锁。</li>
+<li>InnoDB表必须有唯一索引（如主键）（用户没有指定的话会自己找/生产一个隐藏列Row_id来充当默认主键），而MyISAM可以没有。</li>
+<li>Innodb存储文件有frm、ibd，而Myisam是frm、MYD、MYI。</li>
+</ul>
+
+      
+
+      
+    </div>
+    <div class="article-info article-info-index">
+      
+      
+	<div class="article-tag tagcloud">
+		<i class="icon-price-tags icon"></i>
+		<ul class="article-tag-list">
+			 
+        		<li class="article-tag-list-item">
+        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">Java</a>
+        		</li>
+      		 
+        		<li class="article-tag-list-item">
+        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">学习笔记</a>
+        		</li>
+      		
+		</ul>
+	</div>
+
+      
+	<div class="article-category tagcloud">
+		<i class="icon-book icon"></i>
+		<ul class="article-tag-list">
+			 
+        		<li class="article-tag-list-item">
+        			<a href="/categories/Java//" class="article-tag-list-link color5">Java</a>
+        		</li>
+      		 
+        		<li class="article-tag-list-item">
+        			<a href="/categories/Java/学习笔记//" class="article-tag-list-link color5">学习笔记</a>
+        		</li>
+      		
+		</ul>
+	</div>
+
+
+      
+
+      
+      <div class="clearfix"></div>
+    </div>
+  </div>
+</article>
+
+<aside class="wrap-side-operation">
+    <div class="mod-side-operation">
+        
+        <div class="jump-container" id="js-jump-container" style="display:none;">
+            <a href="javascript:void(0)" class="mod-side-operation__jump-to-top">
+                <i class="icon-font icon-back"></i>
+            </a>
+            <div id="js-jump-plan-container" class="jump-plan-container" style="top: -11px;">
+                <i class="icon-font icon-plane jump-plane"></i>
+            </div>
+        </div>
+        
+        
+    </div>
+</aside>
+
+
+
+  
+    <article id="post-事务" class="article article-type-post  article-index" itemscope itemprop="blogPost">
+  <div class="article-inner">
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="article-title" href="/2022/07/07/%E4%BA%8B%E5%8A%A1/">事务</a>
+    </h1>
+  
+
+        
+        <a href="/2022/07/07/%E4%BA%8B%E5%8A%A1/" class="archive-article-date">
+  	<time datetime="2022-07-07T14:12:09.000Z" itemprop="datePublished"><i class="icon-calendar icon"></i>2022-07-07</time>
+</a>
+
+        
+        <div align="center" class="post-count">
+          字数：2.4k字 | 预计阅读时长：8分钟
+      </div>
+      </header>
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <p>  根据维基百科解释，<strong>数据库事务</strong>（简称：<strong>事务</strong>）是<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%AE%A1%E7%90%86%E7%B3%BB%E7%BB%9F">数据库管理系统</a>执行过程中的一个逻辑单位，由一个有限的<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%95%B0%E6%8D%AE%E5%BA%93">数据库</a>操作序列构成。简单来说，如果数据库引擎能够成功地对数据库应用该组查询的全部语句， 那么就执行该组查询。 也就是说， 事务内的语句， 要么全部执行成功， 要么全部执行失败。 举个栗子，银行应用是解释事务必要性的一个经典例子。 假设一个银行的数据库有两张表： 支票<br>（checking） 表和储蓄（savings） 表。 现在要从用户Jane的支票账户转移200美元到她的储蓄账户， 那么需要至少三个步骤：</p>
 <ol>
 <li>检查支票账户的余额高于200美元。</li>
 <li>从支票账户余额中减去200美元。</li>
@@ -201,7 +333,37 @@
     <div class="article-info article-info-index">
       
       
+	<div class="article-tag tagcloud">
+		<i class="icon-price-tags icon"></i>
+		<ul class="article-tag-list">
+			 
+        		<li class="article-tag-list-item">
+        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">Java</a>
+        		</li>
+      		 
+        		<li class="article-tag-list-item">
+        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">学习笔记</a>
+        		</li>
+      		
+		</ul>
+	</div>
+
       
+	<div class="article-category tagcloud">
+		<i class="icon-book icon"></i>
+		<ul class="article-tag-list">
+			 
+        		<li class="article-tag-list-item">
+        			<a href="/categories/Java//" class="article-tag-list-link color5">Java</a>
+        		</li>
+      		 
+        		<li class="article-tag-list-item">
+        			<a href="/categories/Java/学习笔记//" class="article-tag-list-link color5">学习笔记</a>
+        		</li>
+      		
+		</ul>
+	</div>
+
 
       
 
