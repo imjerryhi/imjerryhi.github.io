@@ -80,7 +80,7 @@
             
 		</nav>
 		<nav>
-			总字数 <span class="post-count">4.5k</span>
+			总字数 <span class="post-count">8.8k</span>
 		</nav>
 		<nav class="header-nav">
 			<div class="social">
@@ -155,6 +155,152 @@
           <div id="js-content" class="content-ll">
             
   
+    <article id="post-高性能的索引策略" class="article article-type-post  article-index" itemscope itemprop="blogPost">
+  <div class="article-inner">
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <h1 id="独立的列"><a href="#独立的列" class="headerlink" title="独立的列"></a>独立的列</h1><p>如果查询中的列不是独立的， 则MySQL就不会使用索引。 “独立的列”是指索引列不能是表达式的一部分， 也不能是函数的参数。<br>    例如， 下面这个查询无法使用actor_id列的索引：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql<span class="operator">&gt;</span> <span class="keyword">SELECT</span> actor_id <span class="keyword">FROM</span> sakila.actor <span class="keyword">WHERE</span> actor_id <span class="operator">+</span> <span class="number">1</span> <span class="operator">=</span> <span class="number">5</span>;</span><br></pre></td></tr></table></figure>
+<p>很容易看出WHERE中的表达式其实等价于actor_id=4， 但是MySQL无法自动解析这个方程式。 这完全是用户行为。 我们应该养成简化WHERE条件的习惯， 始终将索引列单独放在比较符号的一侧。</p>
+<h1 id="前缀索引和索引选择性"><a href="#前缀索引和索引选择性" class="headerlink" title="前缀索引和索引选择性"></a>前缀索引和索引选择性</h1><p>通常可以索引开始的部分字符， 这样可以大大节约索引空间， 从而提高索引效率。 但这样也会降低索引的选择性。 索引的选择性是指， 不重复的索引值（也称为基数，cardinality） 和数据表的记录总数（#T） 的比值， 范围从1/#T到1之间。 索引的选择性越高则查询效率越高。<br>    对于BLOB、 TEXT或者很长的VARCHAR类型的列， 必须使用前缀索引， 因为MySQL不允许索引这些列的完整长度 。<br>诀窍在于要选择足够长的前缀以保证较高的选择性， 同时又不能太长（以便节约空间） 。 前缀应该足够长， 以使得前缀索引的选择性接近于索引整个列。 换句话说， 前缀的“基数”应该接近于完整列的“基数”。 </p>
+<h1 id="选择合适的索引列顺序"><a href="#选择合适的索引列顺序" class="headerlink" title="选择合适的索引列顺序"></a>选择合适的索引列顺序</h1><p>在一个多列B-Tree索引中，索引列的顺序意味着索引首先按照最左列进行排序，其次是第二列，等等。所以，索引可以按照升序或者降序进行扫描，以满足精确符合列顺序的 ORDER BY、GROUP BY和DISTINCT等子句的查询需求。<br>对于如何选择索引的列顺序有一个经验法则：将选择性最高的列放到索引最前列。这个建议有用吗?在某些场景可能有帮助，但通常不如避免随机IO和排序那么重要，考虑问题需要更全面。<br>    当不需要考虑排序和分组时，将选择性最高的列放在前面通常是很好的。这时候索引的作用只是用于优化WHERE条件的查找。在这种情况下，这样设计的索引确实能够最快地过滤出需要的行，对于在WHERE子句中只使用了索引部分前缀列的查询来说选择性也更高。然而，性能不只是依赖于所有索引列的选择性（整体基数），也和查询条件的具体值有关，也就是和值的分布有关。<br>以下面的查询为例：<br>SELECT * FROM payment WHERE staff_id = 2 AND **customer_id **= 584;<br>是应该创建一个（staff_id，customer_id）索引还是应该颠倒一下顺序?<br>通过计算staff_id，customer_id的选择性得出结果：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">staff_id_selectivity: <span class="number">0.0001</span> </span><br><span class="line">customer_id_selectivity: <span class="number">0.0373</span> </span><br><span class="line"><span class="built_in">COUNT</span>(<span class="operator">*</span>): <span class="number">16049</span> </span><br></pre></td></tr></table></figure>
+<p>customer_id的选择性更高，所以答案是将其作为索引列的第一列：<br>mysql&gt; **ALTER TABLE payment ADD KEY(customer_id, staff_id); **</p>
+<h1 id="聚簇索引"><a href="#聚簇索引" class="headerlink" title="聚簇索引"></a>聚簇索引</h1><p>聚簇索引并不是一种单独的索引类型，而是一种数据存储方式。InnoDB的聚簇索引在同一个结构中保存了B-Tree索引和数据行。 它的数据行实际上存放在索引的叶子节点中。因为无法同时把数据行存放在两个不同的地方，所以一个表只能有一个聚簇索引。<br>叶子节点包含了行的全部数据，但是节点只包含了索引列。如下图：<br><img src="https://jerry-blog-img.oss-cn-shenzhen.aliyuncs.com/img/1657726347667.jpg" alt="1657618973168.png"></p>
+<p>**聚集的数据有一些重要的优点： **</p>
+<ul>
+<li>可以把相关数据保存在一起。例如实现电子邮箱时，可以根据用户ID来聚集数据， 这样只需要从磁盘读取少数的数据页就能获取某个用户的全部邮件。如果没有使用聚簇索引，则每封邮件都可能导致一次磁盘I/O。 </li>
+<li>数据访问更快。聚簇索引将索引和数据保存在同一个B-Tree中，因此从聚簇索引中获取数据通常比在非聚簇索引中查找要快。 </li>
+<li>使用覆盖索引扫描的查询可以直接使用页节点中的主键值。 </li>
+<li>如果在设计表和查询时能充分利用上面的优点，那就能极大地提升性能。同时，聚簇 </li>
+</ul>
+<p><strong>索引也有一些缺点：</strong> </p>
+<ul>
+<li>聚簇数据最大限度地提高了I/O密集型应用的性能，但如果数据全部都放在内存中，则访问的顺序就没那么重要了，聚簇索引也就没什么优势了。 </li>
+<li>插入速度严重依赖于插入顺序。按照主键的顺序插入是加载数据到InnoDB表中速度最快的方式。但如果不是按照主键顺序加载数据，那么在加载完成后最好使 用OPTIMIZE TABLE命令重新组织一下表。 </li>
+<li>更新聚簇索引列的代价很高，因为会强制InnoDB将每个被更新的行移动到新的位置。基于聚簇索引的表在插入新行，或者主键被更新导致需要移动行的时候，可能面临“页分裂”的问题。当行的主键值要求必须将这一行插入到某个已满的页中时，存储引擎会将该页分裂成两个页面来容纳该行，这就是一次页分裂操作。页分裂会导致表占用更多的磁盘空间。 </li>
+<li>聚簇索引可能导致全表扫描变慢，尤其是行比较稀疏，或者由于页分裂导致数据存储不连续的时候。 </li>
+<li>二级索引（非聚簇索引）可能比想象的要更大，因为在二级索引的叶子节点包含了引用行的主键列。 </li>
+<li>二级索引访问需要两次索引查找，而不是一次。<h1 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h1>如果一个索引包含（或者说覆盖）所有需要查询的字段的值，我们就称之为“覆盖索引”。如果索引的叶子节点中已经包含要查询的数据，那么就没有必要再回表查询。</li>
+</ul>
+<p><strong>覆盖索引的优点：</strong></p>
+<ul>
+<li>索引条目通常远小于数据行大小，所以如果只需要读取索引，那MySQL就会极大地减少数据访问量。</li>
+<li>因为索引是按照列值顺序存储的（至少在单个页内是如此），所以对于I/O密集型的范围查询会比随机从磁盘读取每一行数据的I/O要少得多。</li>
+<li>一些存储引擎如MyISAM在内存中只缓存索引，数据则依赖于操作系统来缓存，因此要访问数据需要一次系统调用。这可能会导致严重的性能问题，尤其是那些系统调用占了数据访问中的最大开销的场景。 </li>
+<li>由于InnoDB的聚簇索引，覆盖索引对InnoDB表特别有用。InnoDB的二级索引在叶子节点中保存了行的主键值，所以如果二级主键能够覆盖查询，则可以避免对主键索引的二次查询。</li>
+</ul>
+<p>不是所有类型的索引都可以成为覆盖索引。 覆盖索引必须要存储索引列的值， 而哈希索引、 空间索引和全文索引等都不存储索引列的值， 所以MySQL只能使用B-Tree索引做覆盖索引。<br>当发起一个被索引覆盖的查询（也叫做索引覆盖查询） 时， 在EXPLAIN的Extra列可以看到“Using index”的信息。 </p>
+<h1 id="使用索引扫描来做排序"><a href="#使用索引扫描来做排序" class="headerlink" title="使用索引扫描来做排序"></a>使用索引扫描来做排序</h1><p>MySQL有两种方式可以生成有序的结果： 通过排序操作； 或者按索引顺序扫描；如果EXPLAIN出来的type列的值为“index”，则说明MySQL使用了索引扫描来做排序。<br>    只有当索引的列顺序和ORDER BY子句的顺序完全一致， 并且所有列的排序方向（倒序或正序） 都一样时， MySQL才能够使用索引来对结果做排序。如果查询需要关联多张表， 则只有当ORDER BY子句引用的字段全部为第一个表时， 才能使用索引做排序。 ORDER BY子句和查找型查询的限制是一样的： 需要满足索引的最左前缀的要求；否则，MySQL都需要执行排序操作，而无法利用索引排序。<br>有一种情况下ORDER BY子句可以不满足索引的最左前缀的要求， 就是前导列为常量的时候。 如果WHERE子句或者JOIN子句中对这些列指定了常量， 就可以“弥补”索引的不足。 </p>
+<h1 id="冗余和重复索引"><a href="#冗余和重复索引" class="headerlink" title="冗余和重复索引"></a>冗余和重复索引</h1><p>重复索引是指在相同的列上按照相同的顺序创建的相同类型的索引。 应该避免这样创建重复索引， 发现以后也应该立即移除。<br>冗余索引和重复索引有一些不同。 如果创建了索引（A， B） ， 再创建索引（A） 就是冗余索引， 因为这只是前一个索引的前缀索引。 因此索引（A， B） 也可以当作索引（A）来使用（这种冗余只是对B-Tree索引来说的） 。 但是如果再创建索引（B， A） ， 则不是冗余索引， 索引（B） 也不是， 因为B不是索引（A， B） 的最左前缀列。 另外， 其他不同类型的索引（例如哈希索引或者全文索引） 也不会是B-Tree索引的冗余索引， 而无论覆盖的索引列是什么。<br>冗余索引通常发生在为表添加新索引的时候。 例如， 有人可能会增加一个新的索引（A， B） 而不是扩展已有的索引（A） 。 还有一种情况是将一个索引扩展为（A， ID） ， 其中ID是主键， 对于InnoDB来说主键列已经包含在二级索引中了， 所以这也是冗余的。<br>大多数情况下都不需要冗余索引， 应该尽量扩展已有的索引而不是创建新索引。 但也有时候出于性能方面的考虑需要冗余索引， 因为扩展已有的索引会导致其变得太大， 从而影响其他使用该索引的查询的性能。 </p>
+
+      
+
+      
+    </div>
+    <div class="article-info article-info-index">
+      
+      
+      
+
+      
+
+      
+      <div class="clearfix"></div>
+    </div>
+  </div>
+</article>
+
+<aside class="wrap-side-operation">
+    <div class="mod-side-operation">
+        
+        <div class="jump-container" id="js-jump-container" style="display:none;">
+            <a href="javascript:void(0)" class="mod-side-operation__jump-to-top">
+                <i class="icon-font icon-back"></i>
+            </a>
+            <div id="js-jump-plan-container" class="jump-plan-container" style="top: -11px;">
+                <i class="icon-font icon-plane jump-plane"></i>
+            </div>
+        </div>
+        
+        
+    </div>
+</aside>
+
+
+
+  
+    <article id="post-索引基础" class="article article-type-post  article-index" itemscope itemprop="blogPost">
+  <div class="article-inner">
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <p>索引可以包含一个或多个列的值。 如果索引包含多个列， 那么列的顺序也十分重要，因为MySQL只能高效地使用索引的最左前缀列。  创建一个包含两个列的索引， 和创建两个只包含一列的索引是大不相同的 。</p>
+<h1 id="索引的类型"><a href="#索引的类型" class="headerlink" title="索引的类型"></a>索引的类型</h1><h2 id="B-Tree索引"><a href="#B-Tree索引" class="headerlink" title="B-Tree索引"></a>B-Tree索引</h2><p>B-Tree对索引列是顺序组织存储的， 所以很适合查找范围数据。 例如， 在一个基于文本域的索引树上， 按字母顺序传递连续的值进行查找是非常合适的， 所以像“找出所有以I到K开头的名字”这样的查找效率会非常高。<br>假设有如下数据表：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> <span class="keyword">TABLE</span> People (</span><br><span class="line">last_name <span class="type">varchar</span>(<span class="number">50</span>) <span class="keyword">not</span> <span class="keyword">null</span>,</span><br><span class="line">first_name <span class="type">varchar</span>(<span class="number">50</span>) <span class="keyword">not</span> <span class="keyword">null</span>,</span><br><span class="line">dob <span class="type">date</span> <span class="keyword">not</span> <span class="keyword">null</span>,</span><br><span class="line">gender enum(<span class="string">&#x27;m&#x27;</span>, <span class="string">&#x27;f&#x27;</span>) <span class="keyword">not</span> <span class="keyword">null</span>,key(last_name, first_name, dob)</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+<p>对于表中的每一行数据， 索引中包含了last_name、 frst_name和dob列的值。<br><img src="https://jerry-blog-img.oss-cn-shenzhen.aliyuncs.com/img/1657373288163%281%29.jpg" alt="1657373288163(1).jpg"></p>
+<pre><code>可以使用B-Tree索引的查询类型。 B-Tree索引适用于全键值、 键值范围或键前缀查找。 其中键前缀查找只适用于根据最左前缀的查找。 前面所述的索引对如下类型的查询有效。
+</code></pre>
+<p>**全值匹配<br>**    全值匹配指的是和索引中的所有列进行匹配， 例如前面提到的索引可用于查找姓名为Cuba Allen、 出生于1960-01-01的人。<br>**匹配最左前缀<br>**    前面提到的索引可用于查找所有姓为Allen的人， 即只使用索引的第一列。<br>**匹配列前缀<br>**    也可以只匹配某一列的值的开头部分。 例如前面提到的索引可用于查找所有以J开头的姓的人。 这里也只使用了索引的第一列。<br>**匹配范围值<br>**    例如前面提到的索引可用于查找姓在Allen和Barrymore之间的人。 这里也只使用了索引的第一列。精确匹配某一列并范围匹配另外一列前面提到的索引也可用于查找所有姓为Allen， 并且名字是字母K开头（比如Kim、 Karl等） 的人。 即第一列last_name全匹配， 第二frst_name范围匹配。<br><strong>只访问索引的查询</strong><br>B-Tree通常可以支持“只访问索引的查询”， 即查询只需要访问索引， 而无须访问数据行。<br>因为索引树中的节点是有序的， 所以除了按值查找之外， 索引还可以用于查询中的ORDER BY操作（按顺序查找） 。 一般来说， 如果B-Tree可以按照某种方式查找到值， 那么也可以按照这种方式用于排序。 所以， 如果ORDER BY子句满足前面列出的几种查询类型， 则这个索引也可以满足对应的排序需求。 </p>
+<p>** 一些关于B-Tree索引的限制：**</p>
+<ul>
+<li>如果不是按照索引的最左列开始查找， 则无法使用索引。 例如上面例子中的索引无法用于查找名字为Bill的人， 也无法查找某个特定生日的人， 因为这两列都不是最左数据列。 类似地， 也无法查找姓氏以某个字母结尾的人。</li>
+<li>不能跳过索引中的列。 也就是说， 前面所述的索引无法用于查找姓为Smith并且在某个特定日期出生的人。 如果不指定名（first_name） ， 则MySQL只能使用索引的第一列。</li>
+<li>如果查询中有某个列的范围查询， 则其右边所有列都无法使用索引优化查找。 例如有查询WHERE last_name=’Smith’ AND frst_name LIKE ‘J％’ AND dob=’1976-12-23’， 这个查询只能使用索引的前两列， 因为这里LIKE是一个范围条件（但是服务器可以把其余列用于其他目的） 。 如果范围查询列值的数量有限， 那么可以通过使用多个等于条件来代替范围条件。<h2 id="哈希索引"><a href="#哈希索引" class="headerlink" title="哈希索引"></a>哈希索引</h2>哈希索引（hash index）基于哈希表实现，只有精确匹配索引所有列的查询才有效。对于每一行数据，存储引擎都会对所有的索引列计算一个哈希码（hash code），哈希码是一个较小的值，并且不同键值的行计算出来的哈希码也不一样。哈希索引将所有的哈希码存储在索引中，同时在哈希表中保存指向每个数据行的指针。 </li>
+</ul>
+<p>哈希索引的数据结构如下：<br><img src="https://jerry-blog-img.oss-cn-shenzhen.aliyuncs.com/img/1657374238103%281%29.jpg" alt="1657374238103(1).jpg"><br>注意每个槽的编号是顺序的， 但是数据行不是。 </p>
+<p>因为索引自身只需存储对应的哈希值， 所以索引的结构十分紧凑， 这也让哈希索引查找的速度非常快。 然而， <strong>哈希索引也有它的限制：</strong></p>
+<ul>
+<li>哈希索引只包含哈希值和行指针， 而不存储字段值， 所以不能使用索引中的值来避免读取行。 不过，访问内存中的行的速度很快， 所以大部分情况下这一点对性能的影响并不明显。</li>
+<li>哈希索引数据并不是按照索引值顺序存储的，所以也就无法用于排序。</li>
+<li>哈希索引也不支持部分索引列匹配查找， 因为哈希索引始终是使用索引列的全部内容来计算哈希值的。 例如， 在数据列（A,B） 上建立哈希索引， 如果查询只有数据列A，则无法使用该索引。</li>
+<li>哈希索引只支持等值比较查询， 包括=、 IN()、 &lt;=&gt;（注意&lt;&gt;和&lt;=&gt;是不同的操作）。也不支持任何范围查询， 例如WHERE price&gt;100。</li>
+<li>访问哈希索引的数据非常快， 除非有很多哈希冲突（不同的索引列值却有相同的哈希值）。当出现哈希冲突的时候，存储引擎必须遍历链表中所有的行指针，逐行进行比较， 直到找到所有符合条件的行。</li>
+<li>如果哈希冲突很多的话， 一些索引维护操作的代价也会很高。 例如， 如果在某个选择性很低（哈希冲突很多） 的列上建立哈希索引， 那么当从表中删除一行时， 存储引擎需要遍历对应哈希值的链表中的每一行， 找到并删除对应行的引用， 冲突越多， 代价越大。  <h1 id="索引的优点"><a href="#索引的优点" class="headerlink" title="索引的优点"></a>索引的优点</h1></li>
+</ul>
+<ol>
+<li>索引大大减少了服务器需要扫描的数据量。</li>
+<li>索引可以帮助服务器避免排序和临时表。</li>
+<li>索引可以将随机I/O变为顺序I/O。</li>
+</ol>
+
+      
+
+      
+    </div>
+    <div class="article-info article-info-index">
+      
+      
+      
+
+      
+
+      
+      <div class="clearfix"></div>
+    </div>
+  </div>
+</article>
+
+<aside class="wrap-side-operation">
+    <div class="mod-side-operation">
+        
+        <div class="jump-container" id="js-jump-container" style="display:none;">
+            <a href="javascript:void(0)" class="mod-side-operation__jump-to-top">
+                <i class="icon-font icon-back"></i>
+            </a>
+            <div id="js-jump-plan-container" class="jump-plan-container" style="top: -11px;">
+                <i class="icon-font icon-plane jump-plane"></i>
+            </div>
+        </div>
+        
+        
+    </div>
+</aside>
+
+
+
+  
     <article id="post-存储引擎" class="article article-type-post  article-index" itemscope itemprop="blogPost">
   <div class="article-inner">
     
@@ -201,6 +347,104 @@
 <li>InnoDB表必须有唯一索引（如主键）（用户没有指定的话会自己找/生产一个隐藏列Row_id来充当默认主键），而MyISAM可以没有。</li>
 <li>Innodb存储文件有frm、ibd，而Myisam是frm、MYD、MYI。</li>
 </ul>
+
+      
+
+      
+    </div>
+    <div class="article-info article-info-index">
+      
+      
+	<div class="article-tag tagcloud">
+		<i class="icon-price-tags icon"></i>
+		<ul class="article-tag-list">
+			 
+        		<li class="article-tag-list-item">
+        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">Java</a>
+        		</li>
+      		 
+        		<li class="article-tag-list-item">
+        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">学习笔记</a>
+        		</li>
+      		
+		</ul>
+	</div>
+
+      
+	<div class="article-category tagcloud">
+		<i class="icon-book icon"></i>
+		<ul class="article-tag-list">
+			 
+        		<li class="article-tag-list-item">
+        			<a href="/categories/Java//" class="article-tag-list-link color5">Java</a>
+        		</li>
+      		 
+        		<li class="article-tag-list-item">
+        			<a href="/categories/Java/学习笔记//" class="article-tag-list-link color5">学习笔记</a>
+        		</li>
+      		
+		</ul>
+	</div>
+
+
+      
+
+      
+      <div class="clearfix"></div>
+    </div>
+  </div>
+</article>
+
+<aside class="wrap-side-operation">
+    <div class="mod-side-operation">
+        
+        <div class="jump-container" id="js-jump-container" style="display:none;">
+            <a href="javascript:void(0)" class="mod-side-operation__jump-to-top">
+                <i class="icon-font icon-back"></i>
+            </a>
+            <div id="js-jump-plan-container" class="jump-plan-container" style="top: -11px;">
+                <i class="icon-font icon-plane jump-plane"></i>
+            </div>
+        </div>
+        
+        
+    </div>
+</aside>
+
+
+
+  
+    <article id="post-多版本并发控制" class="article article-type-post  article-index" itemscope itemprop="blogPost">
+  <div class="article-inner">
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="article-title" href="/2022/07/07/%E5%A4%9A%E7%89%88%E6%9C%AC%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6/">多版本并发控制（MVCC）</a>
+    </h1>
+  
+
+        
+        <a href="/2022/07/07/%E5%A4%9A%E7%89%88%E6%9C%AC%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6/" class="archive-article-date">
+  	<time datetime="2022-07-07T14:12:09.000Z" itemprop="datePublished"><i class="icon-calendar icon"></i>2022-07-07</time>
+</a>
+
+        
+        <div align="center" class="post-count">
+          字数：718字 | 预计阅读时长：2分钟
+      </div>
+      </header>
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <p>MySQL的InnoDB存储引擎是默认的存储引擎，而该存储引擎采用的隔离级别是REPEATABLE READ（可重复读）。据上面介绍，REPEATABLE READ无法解决幻读（Phantom Read） 的问题。其实，InnoDB是使用了多版本并发控制（MVCC）解决幻读问题。<br>MySQL的大多数事务型存储引擎实现的都不是简单的行级锁。 基于提升并发性能的考虑， 它们一般都同时实现了多版本并发控制（MVCC） 。<br>MVCC的实现， 是通过保存数据在某个时间点的快照来实现的。 也就是说， 不管需要执行多长时间， 每个事务看到的数据都是一致的。 根据事务开始的时间不同， 每个事务对同一张表， 同一时刻看到的数据可能是不一样的。<br>InnoDB的MVCC， 是通过在每行记录后面保存两个隐藏的列来实现的。 这两个列，<br>一个保存了行的创建时间， 一个保存行的过期时间（或删除时间） 。 当然存储的并不是实际的时间值， 而是系统版本号（system version number） 。 每开始一个新的事务， 系统版本号都会自动递增。 事务开始时刻的系统版本号会作为事务的版本号， 用来和查询到的每行记录的版本号进行比较。</p>
+<p><strong>SELECT</strong><br>InnoDB会根据以下两个条件检查每行记录：<br>a. InnoDB只查找版本早于当前事务版本的数据行（也就是， 行的系统版本号小于或等于事务的系统版本号） ， 这样可以确保事务读取的行， 要么是在事务开始前已经存在的， 要么是事务自身插入或者修改过的。<br>b. 行的删除版本要么未定义， 要么大于当前事务版本号。 这可以确保事务读取到的行， 在事务开始之前未被删除。只有符合上述两个条件的记录， 才能返回作为查询结果。</p>
+<p><strong>INSERT</strong><br>InnoDB为新插入的每一行保存当前系统版本号作为行版本号。</p>
+<p><strong>DELETE</strong><br>InnoDB为删除的每一行保存当前系统版本号作为行删除标识。</p>
+<p>**UPDATE<br>**    InnoDB为插入一行新记录， 保存当前系统版本号作为行版本号， 同时保存当前系统版本号到原来的行作为行删除标识。</p>
+<p>保存这两个额外系统版本号， 使大多数读操作都可以不用加锁。 这样设计使得读数据操作很简单， 性能很好， 并且也能保证只会读取到符合标准的行。 不足之处是每行记录都需要额外的存储空间， 需要做更多的行检查工作， 以及一些额外的维护工作。 
+ </p>
 
       
 
@@ -325,104 +569,6 @@
 </code></pre>
 <p>法） 。<br>    锁的行为和顺序是和存储引擎相关的。 以同样的顺序执行语句， 有些存储引擎会产生死锁， 有些则不会。 死锁的产生有双重原因： 有些是因为真正的数据冲突， 这种情况通常很难避免， 但有些则完全是由于存储引擎的实现方式导致的。<br>    死锁发生以后， 只有部分或者完全回滚其中一个事务， 才能打破死锁。 对于事务型的系统， 这是无法避免的， 所以应用程序在设计时必须考虑如何处理死锁。 大多数情况下只需要重新执行因死锁回滚的事务即可。 </p>
 <h1 id="事务日志"><a href="#事务日志" class="headerlink" title="事务日志"></a>事务日志</h1><p>事务日志可以帮助提高事务的效率。 使用事务日志， 存储引擎在修改表的数据时只需要修改其内存拷贝， 再把该修改行为记录到持久在硬盘上的事务日志中， 而不用每次都将修改的数据本身持久到磁盘。<br>如果数据的修改已经记录到事务日志并持久化， 但数据本身还没有写回磁盘， 此时系统崩溃， 存储引擎在重启时能够自动恢复这部分修改的数据。 具体的恢复方式则视存储引擎而定。 </p>
-
-      
-
-      
-    </div>
-    <div class="article-info article-info-index">
-      
-      
-	<div class="article-tag tagcloud">
-		<i class="icon-price-tags icon"></i>
-		<ul class="article-tag-list">
-			 
-        		<li class="article-tag-list-item">
-        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">Java</a>
-        		</li>
-      		 
-        		<li class="article-tag-list-item">
-        			<a href="javascript:void(0)" class="js-tag article-tag-list-link color5">学习笔记</a>
-        		</li>
-      		
-		</ul>
-	</div>
-
-      
-	<div class="article-category tagcloud">
-		<i class="icon-book icon"></i>
-		<ul class="article-tag-list">
-			 
-        		<li class="article-tag-list-item">
-        			<a href="/categories/Java//" class="article-tag-list-link color5">Java</a>
-        		</li>
-      		 
-        		<li class="article-tag-list-item">
-        			<a href="/categories/Java/学习笔记//" class="article-tag-list-link color5">学习笔记</a>
-        		</li>
-      		
-		</ul>
-	</div>
-
-
-      
-
-      
-      <div class="clearfix"></div>
-    </div>
-  </div>
-</article>
-
-<aside class="wrap-side-operation">
-    <div class="mod-side-operation">
-        
-        <div class="jump-container" id="js-jump-container" style="display:none;">
-            <a href="javascript:void(0)" class="mod-side-operation__jump-to-top">
-                <i class="icon-font icon-back"></i>
-            </a>
-            <div id="js-jump-plan-container" class="jump-plan-container" style="top: -11px;">
-                <i class="icon-font icon-plane jump-plane"></i>
-            </div>
-        </div>
-        
-        
-    </div>
-</aside>
-
-
-
-  
-    <article id="post-多版本并发控制" class="article article-type-post  article-index" itemscope itemprop="blogPost">
-  <div class="article-inner">
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="article-title" href="/2022/07/07/%E5%A4%9A%E7%89%88%E6%9C%AC%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6/">多版本并发控制（MVCC）</a>
-    </h1>
-  
-
-        
-        <a href="/2022/07/07/%E5%A4%9A%E7%89%88%E6%9C%AC%E5%B9%B6%E5%8F%91%E6%8E%A7%E5%88%B6/" class="archive-article-date">
-  	<time datetime="2022-07-07T14:12:09.000Z" itemprop="datePublished"><i class="icon-calendar icon"></i>2022-07-07</time>
-</a>
-
-        
-        <div align="center" class="post-count">
-          字数：718字 | 预计阅读时长：2分钟
-      </div>
-      </header>
-    
-    <div class="article-entry" itemprop="articleBody">
-      
-        <p>MySQL的InnoDB存储引擎是默认的存储引擎，而该存储引擎采用的隔离级别是REPEATABLE READ（可重复读）。据上面介绍，REPEATABLE READ无法解决幻读（Phantom Read） 的问题。其实，InnoDB是使用了多版本并发控制（MVCC）解决幻读问题。<br>MySQL的大多数事务型存储引擎实现的都不是简单的行级锁。 基于提升并发性能的考虑， 它们一般都同时实现了多版本并发控制（MVCC） 。<br>MVCC的实现， 是通过保存数据在某个时间点的快照来实现的。 也就是说， 不管需要执行多长时间， 每个事务看到的数据都是一致的。 根据事务开始的时间不同， 每个事务对同一张表， 同一时刻看到的数据可能是不一样的。<br>InnoDB的MVCC， 是通过在每行记录后面保存两个隐藏的列来实现的。 这两个列，<br>一个保存了行的创建时间， 一个保存行的过期时间（或删除时间） 。 当然存储的并不是实际的时间值， 而是系统版本号（system version number） 。 每开始一个新的事务， 系统版本号都会自动递增。 事务开始时刻的系统版本号会作为事务的版本号， 用来和查询到的每行记录的版本号进行比较。</p>
-<p><strong>SELECT</strong><br>InnoDB会根据以下两个条件检查每行记录：<br>a. InnoDB只查找版本早于当前事务版本的数据行（也就是， 行的系统版本号小于或等于事务的系统版本号） ， 这样可以确保事务读取的行， 要么是在事务开始前已经存在的， 要么是事务自身插入或者修改过的。<br>b. 行的删除版本要么未定义， 要么大于当前事务版本号。 这可以确保事务读取到的行， 在事务开始之前未被删除。只有符合上述两个条件的记录， 才能返回作为查询结果。</p>
-<p><strong>INSERT</strong><br>InnoDB为新插入的每一行保存当前系统版本号作为行版本号。</p>
-<p><strong>DELETE</strong><br>InnoDB为删除的每一行保存当前系统版本号作为行删除标识。</p>
-<p>**UPDATE<br>**    InnoDB为插入一行新记录， 保存当前系统版本号作为行版本号， 同时保存当前系统版本号到原来的行作为行删除标识。</p>
-<p>保存这两个额外系统版本号， 使大多数读操作都可以不用加锁。 这样设计使得读数据操作很简单， 性能很好， 并且也能保证只会读取到符合标准的行。 不足之处是每行记录都需要额外的存储空间， 需要做更多的行检查工作， 以及一些额外的维护工作。 
- </p>
 
       
 
